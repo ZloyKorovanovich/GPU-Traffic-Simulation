@@ -20,13 +20,13 @@ struct Interpolators {
     uniform float _time;
     uniform float _delta;
 };
-[[vk::binding(1, 0)]] StructuredBuffer<float4> position_buffer;
+[[vk::binding(1, 0)]] StructuredBuffer<float4> r_car_buffer;
 
 Interpolators vertexFunc(uint vertex_id : SV_VERTEXID) {
     Interpolators output = (Interpolators)0;
     uint sample_id = vertex_id / 3;
     uint local_id = vertex_id - sample_id * 3;
-    output.position_cs = float4(float2(position_buffer[sample_id].xy + positions[local_id].xy) * 512 / _screen_size.zw, position_buffer[sample_id].z, 1);
+    output.position_cs = float4(float2(r_car_buffer[sample_id].xy + positions[local_id].xy) * 512 / _screen_size.zw, r_car_buffer[sample_id].z, 1);
     output.color = float4(colors[local_id], 1);
     return output;
 }
