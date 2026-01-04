@@ -377,7 +377,8 @@ i32 renderOnWindowResize(const VulkanContext* vulkan_context, MsgCallback_pfn ms
     return MSG_CODE_SUCCESS;
 }
 
-i32 renderLoop(const VulkanContext* vulkan_context, MsgCallback_pfn msg_callback, RenderContext* render_context) {
+i32 renderLoop(VulkanContext* vulkan_context, MsgCallback_pfn msg_callback, RenderContext* render_context) {
+
     typedef struct {
         VkSemaphore image_submit_semaphores[MAX_SWAPCHAIN_IMAGE_COUNT];
         VkSemaphore image_available_semaphore;
@@ -389,6 +390,7 @@ i32 renderLoop(const VulkanContext* vulkan_context, MsgCallback_pfn msg_callback
     VulkanCmdContext cmd_context = (VulkanCmdContext){0};
     RenderWindowContext win_context = (RenderWindowContext){0};
     void* mapped_memory = NULL;
+    void* mapped_start_memory = NULL;
 
     /* SETUP */ {
         /* command buffer allocation */
@@ -434,6 +436,11 @@ i32 renderLoop(const VulkanContext* vulkan_context, MsgCallback_pfn msg_callback
                 MSG_CALLBACK(msg_callback, MSG_CODE_ERROR_VK_MAP_MEMORY, "failed to map vram host memory allocation");
             }
         }
+        if(render_context->resource_host_start_allocation) {
+            if(vkMapMemory(vulkan_context->device, render_context->resource_host_start_allocation->memory, 0, render_context->resource_host_start_allocation->size, 0, &mapped_start_memory) != VK_SUCCESS) {
+                MSG_CALLBACK(msg_callback, MSG_CODE_ERROR_VK_MAP_MEMORY, "failed to map vram host start memory allocation");
+            }
+        }
     }
     /* when using intergated model we can write directly to device local memory */
     if(vulkan_context->device_type == DEVICE_TYPE_INTEGRATED) {
@@ -453,7 +460,8 @@ i32 renderLoop(const VulkanContext* vulkan_context, MsgCallback_pfn msg_callback
                 .bound_pipeline_id = U32_MAX, 
                 .render_image_id = U32_MAX,
                 .command_buffer = command_buffer,
-                .mapped_memory = mapped_memory
+                .mapped_memory = mapped_memory,
+                .mapped_start_memory = mapped_start_memory
             };
 
             if(vulkan_context->device_type == DEVICE_TYPE_DESCRETE) {
@@ -484,7 +492,16 @@ i32 renderLoop(const VulkanContext* vulkan_context, MsgCallback_pfn msg_callback
                 render_context->start_callback(&cmd_context);
             }
         }
+
+        /* unmap and free start upload memory allocation */
+        if(render_context->resource_host_start_allocation) {
+            vkUnmapMemory(vulkan_context->device, render_context->resource_host_start_allocation->memory);
+            freeVram(vulkan_context, render_context->resource_host_start_allocation);
+            render_context->resource_host_start_allocation = NULL;
+        }
     }
+
+    MSG_CALLBACK_NO_TRACE(msg_callback, MSG_CODE_SUCCESS, "completed start, entering render loop");
 
     while (!glfwWindowShouldClose(vulkan_context->window)) {
         glfwPollEvents();
@@ -620,6 +637,8 @@ i32 renderLoop(const VulkanContext* vulkan_context, MsgCallback_pfn msg_callback
         }
     }
     
+    MSG_CALLBACK_NO_TRACE(msg_callback, MSG_CODE_SUCCESS, "completed render loop");
+
     /* unmap host memory */
     if(vulkan_context->device_type == DEVICE_TYPE_DESCRETE) {
         if(mapped_memory) {
@@ -652,10 +671,15 @@ void* cmdBeginWriteResource(VulkanCmdContext* cmd, const RenderBinding* binding)
     const RenderResource* resource = &cmd->render_context->resources[binding->set][binding->binding];
     cmd->write_binding = *binding;
     if(cmd->vulkan_context->device_type == DEVICE_TYPE_DESCRETE) {
-        return (u8*)cmd->mapped_memory + resource->host_offset;
+        if(resource->mutability == RENDER_RESOURCE_HOST_MUTABLE_ALWAYS) {
+            return (u8*)cmd->mapped_memory + resource->host_offset;
+        }
+        if(resource->mutability == RENDER_RESOURCE_HOST_MUTABLE_START) {
+            return (u8*)cmd->mapped_start_memory + resource->host_offset;
+        }
     }
     if(cmd->vulkan_context->device_type == DEVICE_TYPE_INTEGRATED) {
-        return (u8*)cmd->mapped_memory + resource->device_offset;
+        
     }
     return NULL;
 }
@@ -985,7 +1009,11 @@ i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* 
                 }
             }
             /* check for usage flags */
-            if(resource_infos[i].mutability != RENDER_RESOURCE_HOST_IMMUTABLE && resource_infos[i].mutability != RENDER_RESOURCE_HOST_MUTABLE) {
+            if(
+                resource_infos[i].mutability != RENDER_RESOURCE_HOST_IMMUTABLE && 
+                resource_infos[i].mutability != RENDER_RESOURCE_HOST_MUTABLE_ALWAYS && 
+                resource_infos[i].mutability != RENDER_RESOURCE_HOST_MUTABLE_START
+            ) {
                 strcpy(msg_log, "resource info invalid mutability {binding: ");
                 strcat_u32(msg_log, resource_infos[i].binding);
                 strcat(msg_log, " set: ");
@@ -998,12 +1026,17 @@ i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* 
 
         /* only used if device model is descrete */
         VramAllocationInfo host_allocation_info = {.memory_type_flags = U32_MAX};
+        /* only if descrete and start buffer */
+        VramAllocationInfo host_start_allocation_info = {.memory_type_flags = U32_MAX};
         /* used anyway (if not 0 size )*/
         VramAllocationInfo device_allocation_info = {.memory_type_flags = U32_MAX};
-
+        /* set allocation flags */
         if(vulkan_context->device_type == DEVICE_TYPE_DESCRETE) {
             host_allocation_info.positive_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
             host_allocation_info.negative_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+            host_start_allocation_info.positive_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+            host_start_allocation_info.negative_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
             device_allocation_info.positive_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
             device_allocation_info.negative_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
@@ -1023,6 +1056,7 @@ i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* 
             /* initialize basic info */
             *resource = (RenderResource) {
                 .type = resource_infos[i].type,
+                .mutability = resource_infos[i].mutability,
                 .size = resource_infos[i].size
             };
             /* if buffer */
@@ -1059,7 +1093,7 @@ i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* 
                 }
                 /* next different on different device types */
                 if(device_type == DEVICE_TYPE_DESCRETE) {
-                    if(resource_infos[i].mutability == RENDER_RESOURCE_HOST_MUTABLE) {
+                    if(resource_infos[i].mutability == RENDER_RESOURCE_HOST_MUTABLE_ALWAYS || resource_infos[i].mutability == RENDER_RESOURCE_HOST_MUTABLE_START) {
                         /* create two buffers one transfer src and one uniform and transfer dst */
                         const VkBufferCreateInfo device_buffer_info = {
                             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -1105,15 +1139,22 @@ i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* 
                         device_allocation_info.size += device_buffer_requirements.size;
                         device_allocation_info.memory_type_flags &= device_buffer_requirements.memoryTypeBits;
 
-                        host_allocation_info.size = resource->host_offset = ALIGN(host_allocation_info.size, host_buffer_requirements.alignment);
-                        host_allocation_info.size += host_buffer_requirements.size;
-                        host_allocation_info.memory_type_flags &= host_buffer_requirements.memoryTypeBits;
+                        if(resource_infos[i].mutability == RENDER_RESOURCE_HOST_MUTABLE_ALWAYS) {
+                            host_allocation_info.size = resource->host_offset = ALIGN(host_allocation_info.size, host_buffer_requirements.alignment);
+                            host_allocation_info.size += host_buffer_requirements.size;
+                            host_allocation_info.memory_type_flags &= host_buffer_requirements.memoryTypeBits;
+                        }
+                        if(resource_infos[i].mutability == RENDER_RESOURCE_HOST_MUTABLE_START) {
+                            host_start_allocation_info.size = resource->host_offset = ALIGN(host_start_allocation_info.size, host_buffer_requirements.alignment);
+                            host_start_allocation_info.size += host_buffer_requirements.size;
+                            host_start_allocation_info.memory_type_flags &= host_buffer_requirements.memoryTypeBits;
+                        }
                     }
                     continue;
                 }
                 /* integrated gpu operates on host visible heap */
                 if(device_type == DEVICE_TYPE_INTEGRATED) {
-                    if(resource_infos[i].mutability == RENDER_RESOURCE_HOST_MUTABLE) {
+                    if(resource_infos[i].mutability == RENDER_RESOURCE_HOST_MUTABLE_ALWAYS || resource_infos[i].mutability == RENDER_RESOURCE_HOST_MUTABLE_START) {
                         /* create one device buffer because host memory heap is used */
                         const VkBufferCreateInfo device_buffer_info = {
                             .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -1151,6 +1192,11 @@ i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* 
                 MSG_CALLBACK(msg_callback, MSG_CODE_ERROR_VK_ALLOCATE_VRAM, "faield to allocate vram for host side resources");
             }
         }
+        if(host_start_allocation_info.size != 0) {
+            if(!(context->resource_host_start_allocation = allocateVram(vulkan_context, &host_start_allocation_info))) {
+                MSG_CALLBACK(msg_callback, MSG_CODE_ERROR_VK_ALLOCATE_VRAM, "faield to allocate vram for host side start resources");
+            }
+        }
         if(device_allocation_info.size != 0) {
             if(!(context->resource_device_allocation = allocateVram(vulkan_context, &device_allocation_info))) {
                 MSG_CALLBACK(msg_callback, MSG_CODE_ERROR_VK_ALLOCATE_VRAM, "faield to allocate vram for device side resources");
@@ -1166,7 +1212,15 @@ i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* 
                     MSG_CALLBACK(msg_callback, MSG_CODE_ERROR_VK_BIND_RESOURCE_MEMORY, "failed to bind device buffer memory");
                 }
                 if(bind_resources[i]->host_resource) {
-                    if(vkBindBufferMemory(vulkan_context->device, (VkBuffer)bind_resources[i]->host_resource, context->resource_host_allocation->memory, bind_resources[i]->host_offset) != VK_SUCCESS) {
+                    VkDeviceMemory host_bind_memory = NULL;
+                    /* depending on mutablity type can be different */
+                    if(bind_resources[i]->mutability == RENDER_RESOURCE_HOST_MUTABLE_ALWAYS) {
+                        host_bind_memory = context->resource_host_allocation->memory;
+                    }
+                    if(bind_resources[i]->mutability == RENDER_RESOURCE_HOST_MUTABLE_START) {
+                        host_bind_memory = context->resource_host_start_allocation->memory;
+                    }
+                    if(vkBindBufferMemory(vulkan_context->device, (VkBuffer)bind_resources[i]->host_resource, host_bind_memory, bind_resources[i]->host_offset) != VK_SUCCESS) {
                         MSG_CALLBACK(msg_callback, MSG_CODE_ERROR_VK_BIND_RESOURCE_MEMORY, "failed to bind device buffer memory");
                     }
                 }
@@ -1176,10 +1230,17 @@ i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* 
         /* LOG */ {
             strcpy(msg_log, "created resources count: ");
             strcat_u32(msg_log, context->resource_count);
+            strcat(msg_log, " resources vram {device: ");
+            strcat_u64(msg_log, context->resource_device_allocation ? context->resource_device_allocation->size : 0);
+            strcat(msg_log, " host: ");
+            strcat_u64(msg_log, context->resource_host_allocation ? context->resource_host_allocation->size : 0);
+            strcat(msg_log, " host start: ");
+            strcat_u64(msg_log, context->resource_host_start_allocation ? context->resource_host_start_allocation->size : 0);
+            strcat(msg_log, "}");
             MSG_CALLBACK_NO_TRACE(msg_callback, MSG_CODE_SUCCESS, msg_log);
         }
     }
-   
+    
     /* DESCRIPTOR SETS */ {
         typedef struct {
             VkDescriptorBufferInfo buffer_infos [MAX_DESCRIPTOR_SETS * MAX_BINDINGS_PER_SET];

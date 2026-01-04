@@ -6,6 +6,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 typedef char i8;
 typedef short i16;
@@ -70,6 +75,7 @@ typedef b32 (*MsgCallback_pfn) (i32 msg_code, const char* msg);
     VK INTERFACE
   ======================================================================*/
 
+/* all errors that can be recieved by MsgCallback_pfn from vulkan */
 typedef enum {
     MSG_CODE_ERROR_VK_CREATE_CONTEXT = -2147483647,
     MSG_CODE_ERROR_VK_GLFW_INIT = -2147483646,
@@ -122,7 +128,7 @@ typedef enum {
     MSG_CODE_ERROR_VK_OPEN_FILE = -2147483594
 } MSG_CODES_VK;
 
-
+/* partial type definitions */
 typedef struct VulkanContext VulkanContext;
 typedef struct VulkanCmdContext VulkanCmdContext;
 typedef struct RenderContext RenderContext;
@@ -144,22 +150,26 @@ typedef struct {
     u32 version; /* informs vulkan about your app version */
 } VulkanContextInfo;
 
-/* Runs vulkan function, initalizes glfw, vulkan and all rendering involved,
-then executes render code.  */
+/* creates vulkan context on heap */
 i32 createVulkanContext(const VulkanContextInfo* info, MsgCallback_pfn msg_callback, VulkanContext** vulkan_context);
+/* destroys vulkan context frees memory */
 i32 destroyVulkanContext(MsgCallback_pfn msg_callback, VulkanContext* context);
 
+/* type of render resource */
 typedef enum {
     RENDER_RESOURCE_TYPE_NONE = 0,
     RENDER_RESOURCE_TYPE_UNIFORM_BUFFER = 1,
     RENDER_RESOURCE_TYPE_STORAGE_BUFFER = 2
 } RenderResourceType;
 
+/* marks if resource can be modiffied by cpu or not, */
 typedef enum {
     RENDER_RESOURCE_HOST_IMMUTABLE = 0,
-    RENDER_RESOURCE_HOST_MUTABLE = 1
+    RENDER_RESOURCE_HOST_MUTABLE_ALWAYS = 1,
+    RENDER_RESOURCE_HOST_MUTABLE_START = 2
 } RenderResourceHostMutability;
 
+/* thats user way to point at bindings and resources, they are exactly the same that you use in shader */
 typedef struct {
     u32 binding;
     u32 set;
@@ -167,75 +177,96 @@ typedef struct {
 
 /* resources are all accessed via binding and set */
 typedef struct {
-    RenderResourceType type;
+    RenderResourceType type; /* type of resource */
+    u32 binding; /* binding identifier you will use to point at resource (same as in shader) */
+    u32 set; /* set identifier you will use to point at resource (same as in shader) */
+
+    /* marks if buffer can be cahnged from host side 
+    (on descrete gpus mutable requires host buffer duplicate, 
+    which might cause memory decrease if not used) */
     RenderResourceHostMutability mutability;
-    u32 binding; 
-    u32 set;
-    u64 size;
+
+    /* size of resource, information size of buffer/image, 
+    might be not actual size that will be allocated (aligment issues), 
+    but definitely size of used part of resource */
+    u64 size; 
 } RenderResourceInfo;
 
+/* types of pipelines */
 typedef enum {
     RENDER_PIPELINE_TYPE_NONE = 0,
     RENDER_PIPELINE_TYPE_GRAPHICS = 1,
     RENDER_PIPELINE_TYPE_COMPUTE = 2
 } RenderPipelineType;
 
+/* type of resource usage by pipeline */
 typedef enum {
     RENDER_RESOURCE_ACCESS_TYPE_READ = 0,
     RENDER_RESOURCE_ACCESS_TYPE_WRITE = 1,
     RENDER_RESOURCE_ACCESS_TYPE_READ_WRITE = 2
 } RenderResourceAccessType;
 
+/* shows which resource is used by pipepline with what access type */
 typedef struct {
     u32 binding;
     u32 set;
     RenderResourceAccessType type;
 } RenderResourceAccess;
 
+/* prototype for creating render pipeline */
 typedef struct {
-    RenderPipelineType type;
+    RenderPipelineType type; /* type of pipeline */
+    u32 resource_access_count; /* number of bindings used */
+    const RenderResourceAccess* resources_access; /* binding access */
 
-    u32 resource_access_count;
-    const RenderResourceAccess* resources_access;
-
-    const char* name; /* used for debug only */
-    const char* vertex_shader;
-    const char* fragment_shader;
-    const char* compute_shader;
+    const char* name; /* used for debug only, when created */
+    const char* vertex_shader; /* path to vertex spirv, set NULL if not graphics */
+    const char* fragment_shader; /* path to fragment spirv, set NULL if not graphics */
+    const char* compute_shader; /* path to compute spirv, srt NULL if compute */
 } RenderPipelineInfo;
 
+/* window information, that api provides in update */
 typedef struct {
     u32 x;
     u32 y;
 } RenderWindowContext;
 
-
+/* used to transfer control before render loop to user */
 typedef void (*RenderStart_pfn)(VulkanCmdContext* cmd);
+/* used to transfer control over frame rendering to user */
 typedef void (*RenderUpdate_pfn)(const RenderWindowContext* window_context, VulkanCmdContext* cmd);
 
+/* provides information for render context creation */
 typedef struct {
-    RenderStart_pfn start_callback;
-    RenderUpdate_pfn update_callback;
-    const RenderResourceInfo* resource_infos;
+    RenderStart_pfn start_callback; /* executed before entering render loop, do initial transfers here */
+    RenderUpdate_pfn update_callback; /* executed inside of render loop every frame, all rendering is done here */
+    const RenderResourceInfo* resource_infos; /* resources are accessed via binding and set */
     const RenderPipelineInfo* pipeline_infos; /* indices of programms are preserved, so you can always access it via index you chouse */
     u32 resource_count;
     u32 pipeline_count;
 } RenderContextInfo;
 
-/* vulkan context is not constant because memmory data will change during vram allocations */
+/* creates render context on heap, vulkan context is not constant because memmory data will change during vram allocations */
 i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* render_info, MsgCallback_pfn msg_callback, RenderContext** render_context);
+/* destroys render context and frees memory */
 i32 destroyRenderContext(VulkanContext* vulkan_context, MsgCallback_pfn msg_callback, RenderContext* render_context);
-i32 renderLoop(const VulkanContext* vulkan_context, MsgCallback_pfn msg_callback, RenderContext* render_context);
+/* runs start (where start callback is executed) and render loop, (where update callback is executed)) */
+i32 renderLoop(VulkanContext* vulkan_context, MsgCallback_pfn msg_callback, RenderContext* render_context);
 
+/* dispatches compute shader in given pipeline */
 void cmdCompute(VulkanCmdContext* cmd, u32 pipeline_id, u32 groups_x, u32 groups_y, u32 groups_z);
+/* executes graphics pipeline and draws something */
 void cmdDraw(VulkanCmdContext* cmd, u32 pipeline_id, u32 vertex_count, u32 instance_count);
+/* returns pointer where you write your data to use it in buffer */
 void* cmdBeginWriteResource(VulkanCmdContext* cmd, const RenderBinding* binding);
+/* finishes writing process, if device uses staging buffer, than transfer command is also applied here */
 void cmdEndWriteResource(VulkanCmdContext* cmd);
 
 /*======================================================================
     STD
   ======================================================================*/
 
+/* same as strcat, but adds u32 digits in the end as a string */
 static inline void strcat_u32(char* dst, u32 src) {
     for(;*dst;dst++);
     if(!src) {
@@ -255,7 +286,7 @@ static inline void strcat_u32(char* dst, u32 src) {
     }
     *dst = '\0';
 }
-
+/* same as strcat, but adds u64 digits in the end as a string */
 static inline void strcat_u64(char* dst, u64 src) {
     for(;*dst;dst++);
     if(!src) {
@@ -276,13 +307,23 @@ static inline void strcat_u64(char* dst, u64 src) {
     *dst = '\0';
 }
 
-/*======================================================================
-    ENGINE INFO
-  ======================================================================*/
-
+/* creates version value, same algo as in vulkan api */
 #define MAKE_VERSION(major, minor, patch) ((((u32)(major)) << 22U) | (((u32)(minor)) << 12U) | ((u32)(patch)))
 
-#define ENGINE_NAME "Wreck"
-#define ENGINE_VERSION (VK_MAKE_VERSION(0, 1, 0))
+/* returns time from time counter */
+static inline u64 getTimeSec(void) {
+    return (u64)time(NULL);
+}
+
+#ifdef _WIN32
+/* returns approximate time in ms */
+static inline u64 getTimeMs(void) {
+    LARGE_INTEGER cpu_time = (LARGE_INTEGER){0};
+    LARGE_INTEGER cpu_frequency = (LARGE_INTEGER){0};
+    QueryPerformanceCounter(&cpu_time);
+    QueryPerformanceFrequency(&cpu_frequency);
+    return (cpu_time.QuadPart * 1000) / cpu_frequency.QuadPart;
+}
+#endif
 
 #endif

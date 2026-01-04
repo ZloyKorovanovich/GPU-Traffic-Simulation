@@ -1,4 +1,13 @@
-#include "layout.hlsl"
+#include "noise.hlsl"
+
+[[vk::binding(0, 0)]] cbuffer uniform_buffer {
+    float4 screen_params;
+    float4 time_params;
+}
+[[vk::binding(1, 0)]] StructuredBuffer<float4> vertices;
+
+[[vk::binding(2, 0)]] StructuredBuffer<float4> positions;
+[[vk::binding(3, 0)]] StructuredBuffer<float4> colors;
 
 #define PI 3.14159
 
@@ -20,12 +29,12 @@ float3 rotate(float3 position, float angle) {
     );
 }
 
-Interpolators vertexMain(uint vertex_id : SV_VERTEXID) {
-    float4 position = float4((rotate(0.05 * vertices[vertex_id].xyz, time_params.x * 1) + float3(0, 0, 0.5)), 1.0);
+Interpolators vertexMain(uint vertex_id : SV_VERTEXID, uint instance_id : SV_INSTANCEID) {
+    float4 position = float4(rotate(0.03 * vertices[vertex_id].xyz, time_params.x * noise(instance_id)) + float3(0.2 * positions[instance_id].xy, positions[instance_id].z), 1.0);
 
     Interpolators output = (Interpolators)0;
-    output.position_cs = float4(position.xy / (position.z / 4.0 - 0.01) * screen_params.xy * screen_params.zw, position.z, 1.0);
-    output.color = (1 - (float)(vertex_id / 3) / 12.0);
+    output.position_cs = float4(position.xy / (position.z / 4.0 - 0.01) * 300.0 / screen_params.xy * screen_params.zw, position.z, 1.0);
+    output.color = (1 - (float)(vertex_id / 6) / 8.0) * colors[instance_id];
 
     return output;
 }

@@ -1,5 +1,12 @@
 #include "../main.h"
 
+/*======================================================================
+    VULKAN
+  ======================================================================*/
+
+#define ENGINE_NAME "Wreck"
+#define ENGINE_VERSION (VK_MAKE_VERSION(0, 1, 0))
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -58,9 +65,9 @@ VramAllocation* allocateVram(VulkanContext* vulkan_context, const VramAllocation
 void freeVram(VulkanContext* vulkan_context, VramAllocation* allocation);
 
 
-//
-//
-//
+/*======================================================================
+    RENDER
+  ======================================================================*/
 
 #define MAX_SWAPCHAIN_IMAGE_COUNT 8
 
@@ -114,6 +121,7 @@ typedef struct {
 
 typedef struct {
     RenderResourceType type;
+    RenderResourceHostMutability mutability;
     void* device_resource;
     void* host_resource; /* optionaly used for stransfer in descrete devices */
     u64 device_offset;
@@ -132,6 +140,7 @@ struct VulkanCmdContext {
     const VulkanContext* vulkan_context;
     const RenderContext* render_context;
     void* mapped_memory;
+    void* mapped_start_memory;
     RenderBinding write_binding;
 
     VkCommandBuffer command_buffer;
@@ -158,6 +167,7 @@ struct RenderContext {
     u32 resource_count;
     u32 descriptor_set_count;
     /* resource storage */
+    VramAllocation* resource_host_start_allocation;
     VramAllocation* resource_host_allocation;
     VramAllocation* resource_device_allocation;
     /* pipeline layouts */
@@ -174,5 +184,4 @@ struct RenderContext {
 
     /* EXECUTION */
     VkCommandPool command_pool;
-    
 };
