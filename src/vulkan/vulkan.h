@@ -7,7 +7,7 @@
 #define ENGINE_NAME "Wreck"
 #define ENGINE_VERSION (VK_MAKE_VERSION(0, 1, 0))
 
-#define GLFW_INCLUDE_VULKAN
+#include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 
 #define MAX_VRAM_ALLOCATIONS 512
@@ -59,6 +59,8 @@ struct VulkanContext {
     VkDebugUtilsMessengerEXT debug_messenger;
     PFN_vkCreateDebugUtilsMessengerEXT ext_create_debug_utils_messenger;
     PFN_vkDestroyDebugUtilsMessengerEXT ext_destroy_debug_utils_messenger;
+    /* other */
+    char directory[256];
 };
 
 VramAllocation* allocateVram(VulkanContext* vulkan_context, const VramAllocationInfo* info);

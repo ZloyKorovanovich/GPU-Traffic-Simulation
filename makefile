@@ -2,7 +2,7 @@ cflags = -std=c99 -march=znver3 -O2 -Wall -Iext/inc
 ldflags = -Lext/lib 
 
 clean:
-	rm out/bin/*.o 
+	rm out/bin/*.o
 	rm out/bin/*.exe
 
 compile:
@@ -13,15 +13,23 @@ compile:
 link: 
 	clang out/bin/*.o -o out/bin/main.exe $(ldflags) -fuse-ld=lld-link -lglfw3 -lvulkan-1 -lgdi32 -luser32 -lkernel32 -lshell32
 
+#shader compilation
+vs_cflags = -spirv -T vs_6_0 -E vertexMain
+fs_cflags = -spirv -T ps_6_0 -E fragmentMain
+cs_cflags = -spirv -T cs_6_0 -E computeMain
+
 shaders:
-	dxc -spirv -T vs_6_0 -E vertexMain res/triangle.hlsl -Fo out/data/triangle_v.spv
-	dxc -spirv -T ps_6_0 -E fragmentMain res/triangle.hlsl -Fo out/data/triangle_f.spv
+# car graphics
+	dxc $(vs_cflags) res/car.hlsl -Fo out/data/car_v.spv
+	dxc $(fs_cflags) res/car.hlsl -Fo out/data/car_f.spv
+# road graphics
+	dxc $(vs_cflags) res/road.hlsl -Fo out/data/road_v.spv
+	dxc $(fs_cflags) res/road.hlsl -Fo out/data/road_f.spv
+# traffic compute
+	dxc $(cs_cflags) res/traffic.hlsl -Fo out/data/traffic_c.spv 
 
-	dxc -spirv -T vs_6_0 -E vertexMain res/triangle_flip.hlsl -Fo out/data/triangle_flip_v.spv
-	dxc -spirv -T ps_6_0 -E fragmentMain res/triangle_flip.hlsl -Fo out/data/triangle_flip_f.spv
+clean_shaders:
+	rm out/data/*.spv
 
-	dxc -spirv -T vs_6_0 -E vertexMain res/cube.hlsl -Fo out/data/cube_v.spv
-	dxc -spirv -T ps_6_0 -E fragmentMain res/cube.hlsl -Fo out/data/cube_f.spv
-
-	dxc -spirv -T cs_6_0 -E computeMain res/grid.hlsl -Fo out/data/grid_c.spv 
-	
+run:
+	./out/bin/main.exe

@@ -28,6 +28,24 @@ b32 msgCallback(i32 msg_code, const char* msg) {
     return FALSE;
 }
 
+typedef struct {
+    f32 position[2];
+    f32 forward[2];
+} CarTransform;
+
+typedef struct {
+    f32 begin[2];
+    f32 end[2];
+    float width;
+    float length;
+} RoadSegment;
+
+typedef enum {
+    PIPELINE_TRAFFIC_ID = 0,
+    PIPELINE_CAR_ID = 1,
+    PIPELINE_ROAD_ID = 2
+} PIPLEINE_IDS;
+
 /* uniform buffer host mutable */
 typedef struct {
     f32 screen_params[4];
@@ -35,74 +53,102 @@ typedef struct {
 } UniformBuffer;
 /* cube buffer host mutable, used only in start */
 typedef struct {
-    f32 vertices[36 * 4];
-} CubeBuffer;
-/* grid buffer host immutable, modiffied by compute shader */
+    CarTransform car_transforms[8];
+} CarBuffer;
 typedef struct {
-    f32 positions[16 * 4];
-} GridBuffer;
+    RoadSegment road_segments[4];
+} RoadBuffer;
+
+/* resources */
+const RenderResourceInfo c_resource_infos[] = {
+    (RenderResourceInfo) {
+        .binding = 0, .set = 0,
+        .mutability = RENDER_RESOURCE_HOST_MUTABLE_ALWAYS,
+        .type = RENDER_RESOURCE_TYPE_UNIFORM_BUFFER,
+        .size = sizeof(UniformBuffer)
+    },
+    (RenderResourceInfo) {
+        .binding = 1, .set = 0,
+        .mutability = RENDER_RESOURCE_HOST_MUTABLE_ALWAYS,
+        .type = RENDER_RESOURCE_TYPE_STORAGE_BUFFER,
+        .size = sizeof(CarBuffer)
+    },
+    (RenderResourceInfo) {
+        .binding = 2, .set = 0,
+        .mutability = RENDER_RESOURCE_HOST_MUTABLE_START,
+        .type = RENDER_RESOURCE_TYPE_STORAGE_BUFFER,
+        .size = sizeof(RoadBuffer)
+    }
+};
+
+/* pipelines */
+const RenderPipelineInfo c_pipeline_infos[] = {
+    [PIPELINE_TRAFFIC_ID] = (RenderPipelineInfo) {
+        .type = RENDER_PIPELINE_TYPE_COMPUTE,
+        .name = "traffic",
+        .compute_shader = "data/traffic_c.spv",
+        .resources_access = (RenderResourceAccess[]) {
+            {0, 0, RENDER_RESOURCE_ACCESS_TYPE_READ},
+            {1, 0, RENDER_RESOURCE_ACCESS_TYPE_WRITE},
+            {2, 0, RENDER_RESOURCE_ACCESS_TYPE_READ}
+        },
+        .resource_access_count = 3
+    },
+    [PIPELINE_CAR_ID] = (RenderPipelineInfo) {
+        .type = RENDER_PIPELINE_TYPE_GRAPHICS,
+        .name = "car",
+        .vertex_shader = "data/car_v.spv",
+        .fragment_shader = "data/car_f.spv",
+        .resources_access = (RenderResourceAccess[]) {
+            {0, 0, RENDER_RESOURCE_ACCESS_TYPE_READ},
+            {1, 0, RENDER_RESOURCE_ACCESS_TYPE_READ}
+        },
+        .resource_access_count = 2
+    },
+    [PIPELINE_ROAD_ID] = (RenderPipelineInfo) {
+        .type = RENDER_PIPELINE_TYPE_GRAPHICS,
+        .name = "road",
+        .vertex_shader = "data/road_v.spv",
+        .fragment_shader = "data/road_f.spv",
+        .resources_access = (RenderResourceAccess[]) {
+            {0, 0, RENDER_RESOURCE_ACCESS_TYPE_READ},
+            {2, 0, RENDER_RESOURCE_ACCESS_TYPE_READ}
+        },
+        .resource_access_count = 2
+    }
+};
 
 /* callback on start, used for transfer */
 void startCallback(VulkanCmdContext* cmd) {
-    CubeBuffer* cube_buffer = cmdBeginWriteResource(cmd, &(RenderBinding){1, 0});
-    *cube_buffer = (CubeBuffer) {
-        .vertices =  {
-            -1.0, -1.0,  1.0, 1.0,
-            1.0, -1.0,  1.0, 1.0,
-            1.0,  1.0,  1.0, 1.0,
-            
-            -1.0, -1.0,  1.0, 1.0,
-            1.0,  1.0,  1.0, 1.0,
-            -1.0,  1.0,  1.0, 1.0,
-
-            1.0, -1.0, -1.0, 1.0,
-            -1.0, -1.0, -1.0, 1.0,
-            -1.0,  1.0, -1.0, 1.0,
-            
-            1.0, -1.0, -1.0, 1.0,
-            -1.0,  1.0, -1.0, 1.0,
-            1.0,  1.0, -1.0, 1.0,
-
-            -1.0,  1.0,  1.0, 1.0,
-            1.0,  1.0,  1.0, 1.0,
-            1.0,  1.0, -1.0, 1.0,
-            
-            -1.0,  1.0,  1.0, 1.0,
-            1.0,  1.0, -1.0, 1.0,
-            -1.0,  1.0, -1.0, 1.0,
-            
-            -1.0, -1.0, -1.0, 1.0,
-            1.0, -1.0, -1.0, 1.0,
-            1.0, -1.0,  1.0, 1.0,
-            
-            -1.0, -1.0, -1.0, 1.0,
-            1.0, -1.0,  1.0, 1.0,
-            -1.0, -1.0,  1.0, 1.0,
-
-            1.0, -1.0,  1.0, 1.0,
-            1.0, -1.0, -1.0, 1.0,
-            1.0,  1.0, -1.0, 1.0,
-            
-            1.0, -1.0,  1.0, 1.0,
-            1.0,  1.0, -1.0, 1.0,
-            1.0,  1.0,  1.0, 1.0,
-
-            -1.0, -1.0, -1.0, 1.0,
-            -1.0, -1.0,  1.0, 1.0,
-            -1.0,  1.0,  1.0, 1.0,
-            
-            -1.0, -1.0, -1.0, 1.0,
-            -1.0,  1.0,  1.0, 1.0,
-            -1.0,  1.0, -1.0, 1.0
+    *(CarBuffer*)cmdBeginWriteResource(cmd, &(RenderBinding){1, 0}) = (CarBuffer) {
+        .car_transforms = {
+            {{-0.9,-0.9}, {0.0, 1.0}},
+            {{-0.6,-0.8}, {0.0, 1.0}},
+            {{ 0.8, 0.6}, {0.0, 1.0}},
+            {{-0.5,-0.9}, {0.0, 1.0}},
+            {{ 0.1, 0.8}, {0.0, 1.0}},
+            {{ 0.8,-0.6}, {0.0, 1.0}},
+            {{ 0.6, 0.8}, {0.0, 1.0}},
+            {{ 0.8, 0.2}, {0.0, 1.0}}
         }
     };
     cmdEndWriteResource(cmd);
+    *(RoadBuffer*)cmdBeginWriteResource(cmd, &(RenderBinding){2, 0}) = (RoadBuffer) {
+        .road_segments = {
+            {{-0.85,-0.85}, {-0.85, 0.85}, 0.1, 0.0},
+            {{-0.85, 0.85}, { 0.85, 0.85}, 0.1, 0.0},
+            {{ 0.85, 0.85}, { 0.85,-0.85}, 0.1, 0.0},
+            {{ 0.85,-0.85}, {-0.85,-0.85}, 0.1, 0.0}
+        }
+    };
+    cmdEndWriteResource(cmd);
+
     /* reset timer */
     s_time_values.begin_time_sec = getTimeSec();
     s_time_values.frame_time_ms = getTimeMs();
 }
 
-/* update callback*/
+/* update callback called every frame */
 void updateCallback(const RenderWindowContext* window_context, VulkanCmdContext* cmd) {
     u64 current_time_ms = getTimeMs();
     f64 delta_time = (f64)(current_time_ms - s_time_values.frame_time_ms) / 1000.0;
@@ -125,84 +171,53 @@ void updateCallback(const RenderWindowContext* window_context, VulkanCmdContext*
     };
     cmdEndWriteResource(cmd);
 
-    cmdCompute(cmd, 0, 1, 1, 1);
-    cmdDraw(cmd, 1, 36, 16);
+    cmdCompute(cmd, PIPELINE_TRAFFIC_ID, 1, 1, 1);
+    cmdDraw(cmd, PIPELINE_CAR_ID, 3, 8);
+    cmdDraw(cmd, PIPELINE_ROAD_ID, 6, 4);
+}
+
+char* upFolder(char* path) {
+    char* last_sign = NULL;
+    while (*path) {
+        last_sign = (*path == '\\' || *path == '/') ? path : last_sign;
+        path++;
+    }
+    if(last_sign) {
+        *last_sign = 0;
+    }
+    return last_sign;
 }
 
 i32 main(i32 argc, char** argv) {
     VulkanContext* vulkan_context = NULL;
     RenderContext* render_context = NULL;
-    /* fill everything */
+
+    char work_path[256] = {0};
+    strcpy(work_path, argv[0]);
+    upFolder(work_path);
+    upFolder(work_path);
+    strcat(work_path, "/");
+
     const VulkanContextInfo vulkan_info = {
         .name = "Wreck Demo",
+        .directory = work_path,
         .x = 800,
         .y = 600,
-        .flags = VULKAN_FLAG_WIN_RESIZE,
+        .flags = VULKAN_FLAG_WIN_RESIZE | VULKAN_FLAG_DEBUG,
         .version = MAKE_VERSION(0, 1, 0)
     };
-
-    RenderResourceInfo resource_infos[] = {
-        (RenderResourceInfo) {
-            .binding = 0, .set = 0,
-            .mutability = RENDER_RESOURCE_HOST_MUTABLE_ALWAYS,
-            .type = RENDER_RESOURCE_TYPE_UNIFORM_BUFFER,
-            .size = sizeof(UniformBuffer)
-        },
-        (RenderResourceInfo) {
-            .binding = 1, .set = 0,
-            .mutability = RENDER_RESOURCE_HOST_MUTABLE_START,
-            .type = RENDER_RESOURCE_TYPE_STORAGE_BUFFER,
-            .size = sizeof(CubeBuffer)
-        },
-        (RenderResourceInfo) {
-            .binding = 2, .set = 0,
-            .mutability = RENDER_RESOURCE_HOST_IMMUTABLE,
-            .type = RENDER_RESOURCE_TYPE_STORAGE_BUFFER,
-            .size = sizeof(GridBuffer)
-        },
-        (RenderResourceInfo) {
-            .binding = 3, .set = 0,
-            .mutability = RENDER_RESOURCE_HOST_IMMUTABLE,
-            .type = RENDER_RESOURCE_TYPE_STORAGE_BUFFER,
-            .size = sizeof(GridBuffer)
-        }
-    };
-
-    RenderPipelineInfo pipeline_infos[] = {
-        [0] = (RenderPipelineInfo) {
-            .type = RENDER_PIPELINE_TYPE_COMPUTE,
-            .name = "grid",
-            .compute_shader = "out/data/grid_c.spv",
-            .resources_access = (RenderResourceAccess[]) {
-                {0, 0, RENDER_RESOURCE_ACCESS_TYPE_READ},
-                {2, 0, RENDER_RESOURCE_ACCESS_TYPE_WRITE}
-            },
-            .resource_access_count = 2
-        },
-        [1] = (RenderPipelineInfo) {
-            .type = RENDER_PIPELINE_TYPE_GRAPHICS,
-            .name = "cube",
-            .vertex_shader = "out/data/cube_v.spv",
-            .fragment_shader = "out/data/cube_f.spv",
-            .resources_access = (RenderResourceAccess[]) {
-                {0, 0, RENDER_RESOURCE_ACCESS_TYPE_READ}
-            },
-            .resource_access_count = 1
-        }
-    };
-
     const RenderContextInfo render_info = (RenderContextInfo) {
-        .resource_count = ARRAY_COUNT(resource_infos),
-        .resource_infos = resource_infos,
-        .pipeline_count = ARRAY_COUNT(pipeline_infos),
-        .pipeline_infos = pipeline_infos,
+        .resource_count = ARRAY_COUNT(c_resource_infos),
+        .resource_infos = c_resource_infos,
+        .pipeline_count = ARRAY_COUNT(c_pipeline_infos),
+        .pipeline_infos = c_pipeline_infos,
         .update_callback = &updateCallback,
         .start_callback = &startCallback
     };
     /* run vulkan rendering! */
     if(MSG_IS_ERROR(createVulkanContext(&vulkan_info, &msgCallback, &vulkan_context))) return -1;
     if(MSG_IS_ERROR(createRenderContext(vulkan_context, &render_info, &msgCallback, &render_context))) return -2;
-    if(MSG_IS_ERROR(renderLoop(vulkan_context, &msgCallback, render_context))) return -3;
+    if(MSG_IS_ERROR(renderRun(vulkan_context, &msgCallback, render_context))) return -3;
     if(MSG_IS_ERROR(destroyRenderContext(vulkan_context, msgCallback, render_context))) return -3;
     if(MSG_IS_ERROR(destroyVulkanContext(&msgCallback, vulkan_context))) return -4;
 }

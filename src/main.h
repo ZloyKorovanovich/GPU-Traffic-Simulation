@@ -144,6 +144,7 @@ typedef enum {
 and runtime of this function.   */
 typedef struct {
     const char* name;
+    const char* directory; /* working directory, used to load files with local path */
     u32 x; /* width of window in pixels, not used if fullscreen*/
     u32 y; /* heigh of window in pixels, not used if fullscreen*/
     VulkanFlags flags; /* VulkanFlags value, determines intialization flags */
@@ -251,7 +252,7 @@ i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* 
 /* destroys render context and frees memory */
 i32 destroyRenderContext(VulkanContext* vulkan_context, MsgCallback_pfn msg_callback, RenderContext* render_context);
 /* runs start (where start callback is executed) and render loop, (where update callback is executed)) */
-i32 renderLoop(VulkanContext* vulkan_context, MsgCallback_pfn msg_callback, RenderContext* render_context);
+i32 renderRun(VulkanContext* vulkan_context, MsgCallback_pfn msg_callback, RenderContext* render_context);
 
 /* dispatches compute shader in given pipeline */
 void cmdCompute(VulkanCmdContext* cmd, u32 pipeline_id, u32 groups_x, u32 groups_y, u32 groups_z);

@@ -35,9 +35,9 @@ typedef struct {
     u32 render_family;
     u32 compute_family;
     u32 transfer_family;
+    u32 device_id;
     VkPhysicalDevice device;
     char device_name[VK_MAX_DRIVER_NAME_SIZE];
-    u32 device_id;
 } DeviceInfo;
 
 
@@ -109,7 +109,7 @@ b32 vulkanCheckPhysicalDevice(VkPhysicalDevice device, const char** required_ext
             device_info->score += 1000;
             device_info->type = DEVICE_TYPE_DESCRETE;
         } else if(device_properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
-            device_info->score += 500;
+            device_info->score += 5000;
             device_info->type = DEVICE_TYPE_INTEGRATED;
         }
 
@@ -215,6 +215,15 @@ i32 createVulkanContext(const VulkanContextInfo* info, MsgCallback_pfn msg_callb
     }
     *context = (VulkanContext){0};
 
+    if(info->directory) {
+        strcpy(context->directory, info->directory);
+        strcpy(log_message, "vulkan working directory: ");
+        strcat(log_message, context->directory);
+        MSG_CALLBACK_NO_TRACE(msg_callback, MSG_CODE_SUCCESS, log_message);
+    } else {
+        MSG_CALLBACK_NO_TRACE(msg_callback, MSG_CODE_SUCCESS, "vulkan working directory: CURRENT");
+    }
+
 
     /* ALLOCATE CONTEXT BUFFER */ {
         context_create_buffer = (ContextCreateBuffer*)malloc(sizeof(ContextCreateBuffer)); /* ContextCreateBuffer is freed in the end of this function */
@@ -237,7 +246,6 @@ i32 createVulkanContext(const VulkanContextInfo* info, MsgCallback_pfn msg_callb
         if(!(context->window = glfwCreateWindow((i32)info->x, (i32)info->y, info->name, NULL, NULL))) {
             MSG_CALLBACK(msg_callback, MSG_CODE_ERROR_VK_WINDOW_CREATE, "failed to create window!");
         }
-
         /* LOG */ {
             /* make create window log */
             strcpy(log_message, "created glfw window name: \"");
@@ -541,7 +549,7 @@ i32 destroyVulkanContext(MsgCallback_pfn msg_callback, VulkanContext* context) {
         context->ext_destroy_debug_utils_messenger(context->instance, context->debug_messenger, NULL);
     }
     vkDestroyInstance(context->instance, NULL);
-    glfwDestroyWindow(context->window);
+    glfwDestroyWindow(context->window); /* sometimes crushes */
     glfwTerminate();
 
     free(context);
