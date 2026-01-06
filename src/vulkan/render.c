@@ -1260,6 +1260,7 @@ i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* 
     }
     
     /* DESCRIPTOR SETS */ {
+        /* temp buffer used for this section allocated on heap */
         typedef struct {
             VkDescriptorBufferInfo buffer_infos [MAX_DESCRIPTOR_SETS * MAX_BINDINGS_PER_SET];
             VkWriteDescriptorSet descriptor_writes[MAX_DESCRIPTOR_SETS * MAX_BINDINGS_PER_SET];
@@ -1335,7 +1336,7 @@ i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* 
             };
             if(vkCreateDescriptorSetLayout(vulkan_context->device, &layout_info, NULL, &context->descriptor_set_layouts[context->descriptor_set_count++]) != VK_SUCCESS) {
                 MSG_CALLBACK(msg_callback, MSG_CODE_ERROR_VK_CREATE_DESCRIPTOR_SET_LAYOUT, "failed to create descriptor set layout");
-            };
+            }
         }
         
         /* create descriptor sets */
@@ -1514,14 +1515,6 @@ i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* 
                     strcat(msg_log, "\"" LOCATION_TRACE);
                     MSG_CALLBACK_NO_TRACE(msg_callback, MSG_CODE_ERROR_VK_PIPELINE_CREATE, msg_log);
                 }
-
-                /* copy resource access */
-                const u32 access_count = pipeline_infos[i].resource_access_count;
-                render_pipelines[i].resources_access = resource_access_array;
-                for(u32 j = 0; j < access_count; j++) {
-                    render_pipelines[i].resources_access[j] = pipeline_infos[i].resources_access[j];
-                }
-                resource_access_array += render_pipelines[i].resource_access_count;
             }
             /* if compute */
             if(pipeline_infos[i].type == RENDER_PIPELINE_TYPE_COMPUTE) {
@@ -1541,6 +1534,21 @@ i32 createRenderContext(VulkanContext* vulkan_context, const RenderContextInfo* 
                     strcat(msg_log, "\"" LOCATION_TRACE);
                     MSG_CALLBACK_NO_TRACE(msg_callback, MSG_CODE_ERROR_VK_PIPELINE_CREATE, msg_log);
                 }
+            }
+
+            /* RESOURCE ACCESS */ {
+                /* copy resource access */
+                const u32 access_count = pipeline_infos[i].resource_access_count;
+                const RenderResourceAccess* src = pipeline_infos[i].resources_access;
+                /* destination in the array for all of resource accesses */
+                RenderResourceAccess* dst = resource_access_array;
+                /* copy loop */
+                for(u32 j = 0; j < access_count; dst[j] = src[j], j++);
+                /* apply changes to actual pipelines in pipeline array */
+                render_pipelines[i].resources_access = dst;
+                render_pipelines[i].resource_access_count = access_count;
+                /* adjust array pointer */
+                resource_access_array += access_count;
             }
         }
 
