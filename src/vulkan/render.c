@@ -732,6 +732,7 @@ i32 createShaderModule(const VulkanContext* vulkan_context, const char* shader_p
         strcat(msg_log, "\"" LOCATION_TRACE);
         MSG_CALLBACK_NO_TRACE(msg_callback, MSG_CODE_ERROR_VK_READ_FILE_TO_BUFFER, msg_log);
     }
+    fclose(file);
 
     /* create module */
     VkShaderModuleCreateInfo shader_module_info = {

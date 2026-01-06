@@ -194,7 +194,7 @@ i32 main(i32 argc, char** argv) {
         .directory = work_path,
         .x = 800,
         .y = 600,
-        .flags = VULKAN_FLAG_WIN_RESIZE | VULKAN_FLAG_DEBUG,
+        .flags = VULKAN_FLAG_WIN_RESIZE,
         .version = MAKE_VERSION(0, 1, 0)
     };
     const RenderContextInfo render_info = (RenderContextInfo) {
