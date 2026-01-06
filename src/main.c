@@ -36,6 +36,8 @@ typedef struct {
 typedef struct {
     f32 begin[2];
     f32 end[2];
+    float begin_shift;
+    float end_shift;
     float width;
     float length;
 } RoadSegment;
@@ -135,10 +137,10 @@ void startCallback(VulkanCmdContext* cmd) {
     cmdEndWriteResource(cmd);
     *(RoadBuffer*)cmdBeginWriteResource(cmd, &(RenderBinding){2, 0}) = (RoadBuffer) {
         .road_segments = {
-            {{-0.85,-0.85}, {-0.85, 0.85}, 0.1, 0.0},
-            {{-0.85, 0.85}, { 0.85, 0.85}, 0.1, 0.0},
-            {{ 0.85, 0.85}, { 0.85,-0.85}, 0.1, 0.0},
-            {{ 0.85,-0.85}, {-0.85,-0.85}, 0.1, 0.0}
+            {{-0.85,-0.85}, {-0.85, 0.85}, 0.1,-0.1, 0.1, 1.7},
+            {{-0.85, 0.85}, { 0.85, 0.85}, 0.1,-0.1, 0.1, 1.7},
+            {{ 0.85, 0.85}, { 0.85,-0.85}, 0.1,-0.1, 0.1, 1.7},
+            {{ 0.85,-0.85}, {-0.85,-0.85}, 0.1,-0.1, 0.1, 1.7}
         }
     };
     cmdEndWriteResource(cmd);
@@ -151,7 +153,8 @@ void startCallback(VulkanCmdContext* cmd) {
 /* update callback called every frame */
 void updateCallback(const RenderWindowContext* window_context, VulkanCmdContext* cmd) {
     u64 current_time_ms = getTimeMs();
-    f64 delta_time = (f64)(current_time_ms - s_time_values.frame_time_ms) / 1000.0;
+    /* if delta real time difference is too big, we should prevent gpu time-dependent system breaks */
+    f64 delta_time = MIN((f64)(current_time_ms - s_time_values.frame_time_ms) / 1000.0, 0.02f);
 
     s_time_values.frame_time_ms = current_time_ms;
     s_time_values.time_sec += delta_time;
@@ -159,8 +162,8 @@ void updateCallback(const RenderWindowContext* window_context, VulkanCmdContext*
     UniformBuffer* uniform_buffer = cmdBeginWriteResource(cmd, &(RenderBinding){0, 0});
     *uniform_buffer = (UniformBuffer) {
         .screen_params = {
-            (f32)window_context->x,
-            (f32)window_context->y,
+            300.0 / (f32)window_context->x,
+            300.0 / (f32)window_context->y,
             1.0, -1.0
         },
         .time_params = {
@@ -174,18 +177,6 @@ void updateCallback(const RenderWindowContext* window_context, VulkanCmdContext*
     cmdCompute(cmd, PIPELINE_TRAFFIC_ID, 1, 1, 1);
     cmdDraw(cmd, PIPELINE_CAR_ID, 3, 8);
     cmdDraw(cmd, PIPELINE_ROAD_ID, 6, 4);
-}
-
-char* upFolder(char* path) {
-    char* last_sign = NULL;
-    while (*path) {
-        last_sign = (*path == '\\' || *path == '/') ? path : last_sign;
-        path++;
-    }
-    if(last_sign) {
-        *last_sign = 0;
-    }
-    return last_sign;
 }
 
 i32 main(i32 argc, char** argv) {

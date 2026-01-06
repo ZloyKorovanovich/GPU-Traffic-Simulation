@@ -37,7 +37,7 @@ typedef struct {
     u32 transfer_family;
     u32 device_id;
     VkPhysicalDevice device;
-    char device_name[VK_MAX_DRIVER_NAME_SIZE];
+    char device_name[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE];
 } DeviceInfo;
 
 
@@ -109,7 +109,7 @@ b32 vulkanCheckPhysicalDevice(VkPhysicalDevice device, const char** required_ext
             device_info->score += 1000;
             device_info->type = DEVICE_TYPE_DESCRETE;
         } else if(device_properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
-            device_info->score += 5000;
+            device_info->score += 500;
             device_info->type = DEVICE_TYPE_INTEGRATED;
         }
 

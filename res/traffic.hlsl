@@ -1,6 +1,8 @@
 struct RoadSegment {
     float2 begin;
     float2 end;
+    float begin_shift;
+    float end_shift;
     float width;
     float length;
 };
@@ -21,16 +23,17 @@ struct CarTransform {
 
 float2 getSegmentDirection(RoadSegment segment, float2 p) {
     float2 segment_dir = segment.end - segment.begin;
-    float  segment_len = length(segment_dir);
-    segment_dir = segment_dir / segment_len;
+    segment_dir = segment_dir / segment.length;
     /* default tan = (0, -1) use formula x1 = x*cos(a)-y*sin(a); y1 = x*sin(a)+y*cos(a)*/
     float2 segment_tan = float2(segment_dir.y, -segment_dir.x);
     /* project pos */
-    float2 pos_local = p - segment.begin;
-    float  proj_tan  = dot(pos_local, segment_tan);
-    float  proj_dir  = dot(pos_local, segment_dir);
-    /* detect direction, return -1 road direction if left, + road direction if right, 0 if out of border */
-    return sign(proj_tan) * step(abs(proj_tan), segment.width) * (step(proj_dir, segment_len) * step(0, proj_dir)) * segment_dir;
+    float2 pos_translated = p - segment.begin;
+    float2 pos_local = float2(dot(pos_translated, segment_tan), dot(pos_translated, segment_dir));
+
+    float y_begin = pos_local.x * segment.begin_shift / segment.width;
+    float y_end   = pos_local.x * segment.end_shift / segment.width + segment.length;
+
+    return sign(pos_local.x) * step(abs(pos_local.x), segment.width) * (step(y_begin, pos_local.y) * step(pos_local.y, y_end)) * segment_dir;
 }
 
 [numthreads(8, 1, 1)]

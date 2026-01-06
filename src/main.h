@@ -308,6 +308,19 @@ static inline void strcat_u64(char* dst, u64 src) {
     *dst = '\0';
 }
 
+static inline char* upFolder(char* path) {
+    char* last_sign = NULL;
+    while (*path) {
+        last_sign = (*path == '\\' || *path == '/') ? path : last_sign;
+        path++;
+    }
+    if(last_sign) {
+        *last_sign = 0;
+    }
+    return last_sign;
+}
+
+
 /* creates version value, same algo as in vulkan api */
 #define MAKE_VERSION(major, minor, patch) ((((u32)(major)) << 22U) | (((u32)(minor)) << 12U) | ((u32)(patch)))
 
@@ -325,6 +338,14 @@ static inline u64 getTimeMs(void) {
     QueryPerformanceFrequency(&cpu_frequency);
     return (cpu_time.QuadPart * 1000) / cpu_frequency.QuadPart;
 }
+#else 
+#include <sys/time.h>
+/* returns approximate time in ms */
+static inline u64 getTimeMs(void) {
+    timeval time_value = (timeval){0};
+    gettimeofday(&time_value,NULL);
+    return ((u64)time_value.tv_sec) * 1000 + time_value.tv_usec / 1000;
+};
 #endif
 
 #endif
