@@ -42,6 +42,10 @@ typedef struct {
     float length;
 } RoadSegment;
 
+typedef struct {
+    u32 branches[4];
+} SpaceNode;
+
 typedef enum {
     PIPELINE_TRAFFIC_ID = 0,
     PIPELINE_CAR_ID = 1,
@@ -60,6 +64,9 @@ typedef struct {
 typedef struct {
     RoadSegment road_segments[4];
 } RoadBuffer;
+typedef struct {
+    SpaceNode road_nodes[];
+} RoadTree;
 
 /* resources */
 const RenderResourceInfo c_resource_infos[] = {
@@ -88,7 +95,7 @@ const RenderPipelineInfo c_pipeline_infos[] = {
     [PIPELINE_TRAFFIC_ID] = (RenderPipelineInfo) {
         .type = RENDER_PIPELINE_TYPE_COMPUTE,
         .name = "traffic",
-        .compute_shader = "data/traffic_c.spv",
+        .compute_shader = "shaders/traffic_c.spv",
         .resources_access = (RenderResourceAccess[]) {
             {0, 0, RENDER_RESOURCE_ACCESS_TYPE_READ},
             {1, 0, RENDER_RESOURCE_ACCESS_TYPE_WRITE},
@@ -99,8 +106,8 @@ const RenderPipelineInfo c_pipeline_infos[] = {
     [PIPELINE_CAR_ID] = (RenderPipelineInfo) {
         .type = RENDER_PIPELINE_TYPE_GRAPHICS,
         .name = "car",
-        .vertex_shader = "data/car_v.spv",
-        .fragment_shader = "data/car_f.spv",
+        .vertex_shader = "shaders/car_v.spv",
+        .fragment_shader = "shaders/car_f.spv",
         .resources_access = (RenderResourceAccess[]) {
             {0, 0, RENDER_RESOURCE_ACCESS_TYPE_READ},
             {1, 0, RENDER_RESOURCE_ACCESS_TYPE_READ}
@@ -110,8 +117,8 @@ const RenderPipelineInfo c_pipeline_infos[] = {
     [PIPELINE_ROAD_ID] = (RenderPipelineInfo) {
         .type = RENDER_PIPELINE_TYPE_GRAPHICS,
         .name = "road",
-        .vertex_shader = "data/road_v.spv",
-        .fragment_shader = "data/road_f.spv",
+        .vertex_shader = "shaders/road_v.spv",
+        .fragment_shader = "shaders/road_f.spv",
         .resources_access = (RenderResourceAccess[]) {
             {0, 0, RENDER_RESOURCE_ACCESS_TYPE_READ},
             {2, 0, RENDER_RESOURCE_ACCESS_TYPE_READ}

@@ -342,7 +342,7 @@ static inline u64 getTimeMs(void) {
 #include <sys/time.h>
 /* returns approximate time in ms */
 static inline u64 getTimeMs(void) {
-    timeval time_value = (timeval){0};
+    struct timeval time_value = (timeval){0};
     gettimeofday(&time_value,NULL);
     return ((u64)time_value.tv_sec) * 1000 + time_value.tv_usec / 1000;
 };
