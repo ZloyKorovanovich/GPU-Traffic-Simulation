@@ -1,32 +1,3 @@
-/*  To find closest node you need to iterate through tree.
-    Tree node array is structured so, that layers are grouped together, for example:
-
-            Node A
-            /   \
-           /     \
-       Node B   Node F
-       /   \       \
-      /     \       \
-  Node C  Node D    ... 
-
-    This will look like that inside of array:
-    
-    [Node A][Node B][Node F][Node C][Node D][...]
-
-    Number of barnches is different from example, as default we use 4 branches per node.
-    Each branch represents index of the next node. If id is 0, its invalid, and branch doesnt exist.
-    Recursion from node to the same node through index of itself is prohibited (thats why nothing can point to id 0 which is first node).
-    if index is greated than 0xffff, index is pointing to the road array, to the actual road segment.
-    if index is equal to 0xfffffffff, its emoty branch, pointing to "NULL" road segment. 
-*/
-
-struct SpaceNode {
-    uint4 branches;
-    /* +---+
-       |x y| 
-       |z w| 
-       +---+ */
-};
 
 struct RoadSegment {
     float2 begin;
@@ -46,13 +17,16 @@ struct CarTransform {
     float4 screen_params;
     float4 time_params;
 }
+
 [[vk::binding(1, 0)]] RWStructuredBuffer<CarTransform> car_transforms;
 [[vk::binding(2, 0)]] StructuredBuffer<RoadSegment> road_segments;
-[[vk::binding(3, 0)]] StructuredBuffer<SpaceNode> road_tree;
+[[vk::binding(3, 0)]] StructuredBuffer<uint2> road_indices;
 
 #define MAX_TREE_DEPTH 4
 #define EPSILON 0.0001
 #define PADDING_RANGE 0.1
+#define INDICES_X 128
+#define INDICES_Y 128
 
 float2 getSegmentDirection(RoadSegment segment, float2 p) {
     float2 segment_dir = segment.end - segment.begin;
@@ -116,48 +90,31 @@ float2 getSegmentDirection2(RoadSegment segment, float2 p) {
     return (vec_len > EPSILON) ? vec / vec_len : float2(0.0, 0.0) / 1.0;
 }
 
-/* implement this tree search */
-void getSegments(float2 position, out RoadSegment segments[4]) {
-    uint node_id = 0;
-    SpaceNode node = road_tree[0];
-    uint2 position_id = uint2(position * MAX_TREE_DEPTH);
-    uint4 road_ids = uint4(0xffffffff);
-    /* search though tree */
-    uint i;
-    [unroll(MAX_TREE_DEPTH)] for(i = 1; i < MAX_TREE_DEPTH; i++) {
-        uint2 sample_id = position_id / MAX_TREE_DEPTH - i;
-        uint next_node_id = node.branches[sample_id.x + sample_id.y * 2];
-        /* I hope compiler is smart enough to recognize that operations are the same */
-        if(next_node_id == 0xffffffff) {
-            node_id = node_id;
-            node = road_tree[node_id];
-            road_ids = uint4(0xffffffff);
-        } else {
-            node_id = next_node_id;
-            node = road_tree[node_id];
-            road_ids = node.branches;
-        }
-    }
-    /* by that moment indices of roads are accumulated in road_ids */
-    [unroll(4)] for(i = 0; i < 4; i++) {
-        segments[i] = road_segments[(road_ids[i] == 0xffffffff) ? 0 : road_segments[road_ids[i]]];
-    }
+uint4 sampleRoadIndices(float2 p) {
+    uint2 raw = road_indices[(uint)p * INDICES_X + (uint)p * INDICES_Y];
+    return uint4(
+        (raw[0] & 0xffff), 
+        ((raw[0] >> 16) & 0xffff), 
+        (raw[1] & 0xffff),
+        ((raw[1] >> 16) & 0xffff)
+    );
 }
 
 [numthreads(8, 1, 1)]
 void computeMain(uint3 thread_id : SV_DispatchThreadID) {
     CarTransform car_transform = car_transforms[thread_id.x];
-    RoadSegment segments[4];
-    getSegments(car_transform.position, segments);
 
-    car_transform.forward = getSegmentDirection2(segments[0], car_transform.position);
-    car_transform.forward += getSegmentDirection2(segments[1], car_transform.position);
-    car_transform.forward += getSegmentDirection2(segments[2], car_transform.position);
-    car_transform.forward += getSegmentDirection2(segments[3], car_transform.position);
-
-    float forward_len_sqr = dot(car_transform.forward, car_transform.forward);
-
-    car_transform.forward = car_transform.forward / sqrt(forward_len_sqr); //(forward_len_sqr > ESPSILON) ? car_transform.forward / sqrt(forward_len_sqr) : float2(0, 0);
+    uint4 segment_ids = sampleRoadIndices(car_transform.position);
+    float2 field_vector = 0;
+    [unroll(4)]
+    for(uint i = 0; i < 4; i++) {
+        if(segment_ids[i] != 0xffff) {
+            field_vector += getSegmentDirection2(road_segments[segment_ids[i]], car_transform.position);
+        }
+    }
+    /* normalize forward direction */
+    float forward_len = length(field_vector);
+    car_transform.forward = (forward_len < EPSILON) ? 0 : field_vector / forward_len;
     
     car_transform.position += time_params.y * car_transform.forward * 0.5;
     car_transforms[thread_id.x] = car_transform;

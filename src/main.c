@@ -52,6 +52,8 @@ typedef enum {
     PIPELINE_ROAD_ID = 2
 } PIPLEINE_IDS;
 
+#define CAR_COUNT (8)
+
 /* uniform buffer host mutable */
 typedef struct {
     f32 screen_params[4];
@@ -59,14 +61,14 @@ typedef struct {
 } UniformBuffer;
 /* cube buffer host mutable, used only in start */
 typedef struct {
-    CarTransform car_transforms[8];
+    CarTransform car_transforms[CAR_COUNT];
 } CarBuffer;
 typedef struct {
     RoadSegment road_segments[4];
 } RoadBuffer;
 typedef struct {
-    SpaceNode road_nodes[];
-} RoadTree;
+    u32 road_indices[3 * 3 * 2];
+} RoadIndexBuffer;
 
 /* resources */
 const RenderResourceInfo c_resource_infos[] = {
@@ -87,6 +89,12 @@ const RenderResourceInfo c_resource_infos[] = {
         .mutability = RENDER_RESOURCE_HOST_MUTABLE_START,
         .type = RENDER_RESOURCE_TYPE_STORAGE_BUFFER,
         .size = sizeof(RoadBuffer)
+    },
+    (RenderResourceInfo) {
+        .binding = 3, .set = 0,
+        .mutability = RENDER_RESOURCE_HOST_MUTABLE_START,
+        .type = RENDER_RESOURCE_TYPE_STORAGE_BUFFER,
+        .size = sizeof(RoadIndexBuffer)
     }
 };
 
@@ -99,9 +107,10 @@ const RenderPipelineInfo c_pipeline_infos[] = {
         .resources_access = (RenderResourceAccess[]) {
             {0, 0, RENDER_RESOURCE_ACCESS_TYPE_READ},
             {1, 0, RENDER_RESOURCE_ACCESS_TYPE_WRITE},
-            {2, 0, RENDER_RESOURCE_ACCESS_TYPE_READ}
+            {2, 0, RENDER_RESOURCE_ACCESS_TYPE_READ},
+            {3, 0, RENDER_RESOURCE_ACCESS_TYPE_READ}
         },
-        .resource_access_count = 3
+        .resource_access_count = 4
     },
     [PIPELINE_CAR_ID] = (RenderPipelineInfo) {
         .type = RENDER_PIPELINE_TYPE_GRAPHICS,
@@ -129,18 +138,17 @@ const RenderPipelineInfo c_pipeline_infos[] = {
 
 /* callback on start, used for transfer */
 void startCallback(VulkanCmdContext* cmd) {
-    *(CarBuffer*)cmdBeginWriteResource(cmd, &(RenderBinding){1, 0}) = (CarBuffer) {
-        .car_transforms = {
-            {{-0.9,-0.9}, {0.0, 1.0}},
-            {{-0.6,-0.8}, {0.0, 1.0}},
-            {{ 0.8, 0.6}, {0.0, 1.0}},
-            {{-0.5,-0.9}, {0.0, 1.0}},
-            {{ 0.1, 0.8}, {0.0, 1.0}},
-            {{ 0.8,-0.6}, {0.0, 1.0}},
-            {{ 0.6, 0.8}, {0.0, 1.0}},
-            {{ 0.8, 0.2}, {0.0, 1.0}}
-        }
-    };
+    CarBuffer *car_buffer = cmdBeginWriteResource(cmd, &(RenderBinding){1, 0});
+    for(u32 i = 0; i < CAR_COUNT; i += 8) {
+        car_buffer->car_transforms[i] = (CarTransform){{-0.9,-0.9}, {0.0, 1.0}};
+        car_buffer->car_transforms[i + 1] = (CarTransform){{-0.6,-0.8}, {0.0, 1.0}};
+        car_buffer->car_transforms[i + 2] = (CarTransform){{ 0.8, 0.6}, {0.0, 1.0}};
+        car_buffer->car_transforms[i + 3] = (CarTransform){{-0.5,-0.9}, {0.0, 1.0}};
+        car_buffer->car_transforms[i + 4] = (CarTransform){{ 0.1, 0.8}, {0.0, 1.0}};
+        car_buffer->car_transforms[i + 5] = (CarTransform){{ 0.8,-0.6}, {0.0, 1.0}};
+        car_buffer->car_transforms[i + 6] = (CarTransform){{ 0.6, 0.8}, {0.0, 1.0}};
+        car_buffer->car_transforms[i + 7] = (CarTransform){{ 0.8, 0.2}, {0.0, 1.0}};
+    }
     cmdEndWriteResource(cmd);
     *(RoadBuffer*)cmdBeginWriteResource(cmd, &(RenderBinding){2, 0}) = (RoadBuffer) {
         .road_segments = {
@@ -148,6 +156,21 @@ void startCallback(VulkanCmdContext* cmd) {
             {{-0.85, 0.85}, { 0.85, 0.85}, 0.1,-0.1, 0.1, 1.7},
             {{ 0.85, 0.85}, { 0.85,-0.85}, 0.1,-0.1, 0.1, 1.7},
             {{ 0.85,-0.85}, {-0.85,-0.85}, 0.1,-0.1, 0.1, 1.7}
+        }
+    };
+    cmdEndWriteResource(cmd);
+
+    *(RoadIndexBuffer*)cmdBeginWriteResource(cmd, &(RenderBinding){3, 0}) = (RoadIndexBuffer) {
+        .road_indices = {
+            0 | (1 << 16), 2 | (3 << 16),
+            0 | (1 << 16), 2 | (3 << 16),
+            0 | (1 << 16), 2 | (3 << 16),
+            0 | (1 << 16), 2 | (3 << 16),
+            0 | (1 << 16), 2 | (3 << 16),
+            0 | (1 << 16), 2 | (3 << 16),
+            0 | (1 << 16), 2 | (3 << 16),
+            0 | (1 << 16), 2 | (3 << 16),
+            0 | (1 << 16), 2 | (3 << 16)
         }
     };
     cmdEndWriteResource(cmd);
@@ -181,8 +204,8 @@ void updateCallback(const RenderWindowContext* window_context, VulkanCmdContext*
     };
     cmdEndWriteResource(cmd);
 
-    cmdCompute(cmd, PIPELINE_TRAFFIC_ID, 1, 1, 1);
-    cmdDraw(cmd, PIPELINE_CAR_ID, 3, 8);
+    cmdCompute(cmd, PIPELINE_TRAFFIC_ID, CAR_COUNT / 8, 1, 1);
+    cmdDraw(cmd, PIPELINE_CAR_ID, 3, CAR_COUNT);
     cmdDraw(cmd, PIPELINE_ROAD_ID, 6, 4);
 }
 
