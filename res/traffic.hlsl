@@ -8,6 +8,10 @@ struct RoadSegment {
     float length;
 };
 
+struct RoadNode {
+    uint4 nodes;
+};
+
 struct CarTransform {
     float2 position;
     float2 forward;
@@ -20,7 +24,7 @@ struct CarTransform {
 
 [[vk::binding(1, 0)]] RWStructuredBuffer<CarTransform> car_transforms;
 [[vk::binding(2, 0)]] StructuredBuffer<RoadSegment> road_segments;
-[[vk::binding(3, 0)]] StructuredBuffer<uint2> road_indices;
+[[vk::binding(3, 0)]] StructuredBuffer<RoadNode> road_nodes;
 
 #define MAX_TREE_DEPTH 4
 #define EPSILON 0.0001
@@ -91,31 +95,53 @@ float2 getSegmentDirection2(RoadSegment segment, float2 p) {
 }
 
 uint4 sampleRoadIndices(float2 p) {
-    uint2 raw = road_indices[(uint)p * INDICES_X + (uint)p * INDICES_Y];
-    return uint4(
-        (raw[0] & 0xffff), 
-        ((raw[0] >> 16) & 0xffff), 
-        (raw[1] & 0xffff),
-        ((raw[1] >> 16) & 0xffff)
+    /* set road indices to invalid */
+    uint4 sgements = uint4(
+        0x7fffffff,
+        0x7fffffff,
+        0x7fffffff,
+        0x7fffffff
     );
+
+    /* set node to root node, which has id 0 */
+    RoadNode node = road_nodes[0];
+
+    /* when converting position to int it is crusial to adjust scale in floats */
+    float scale_m = 2.0;
+    /* this is unrolled compile time for MAX_TREE_DEPTH iterations */
+    [unroll(MAX_TREE_DEPTH)]
+    for(uint i = 0; i < MAX_TREE_DEPTH; i++) {
+        /* if any index of children in node is < 0x80000000, 
+            than all indices in node are indexing nodes */
+        if(node.nodes[0] < 0x80000000) {
+            uint node_id = (uint)(p.x * scale_m) + (uint)(p.y * scale_m) * 2;
+            /* 0x7fffffff is invalid value for node index */
+            if(node_id != 0x7fffffff) {
+                node = road_nodes[node_id];
+            }
+        }
+        /* if index is >= 0x80000000, all indices in node are indexing road segments */ 
+        else {
+            sgements = uint4(
+                node.nodes[0] - 0x80000000,
+                node.nodes[1] - 0x80000000,
+                node.nodes[2] - 0x80000000,
+                node.nodes[3] - 0x80000000
+            );
+        }
+        scale_m *= 2.0;
+    }
+
+    return sgements;
 }
 
 [numthreads(8, 1, 1)]
 void computeMain(uint3 thread_id : SV_DispatchThreadID) {
     CarTransform car_transform = car_transforms[thread_id.x];
 
-    uint4 segment_ids = sampleRoadIndices(car_transform.position);
-    float2 field_vector = 0;
+    uint4 road_indices = sampleRoadIndices(car_transform.position);
     [unroll(4)]
     for(uint i = 0; i < 4; i++) {
-        if(segment_ids[i] != 0xffff) {
-            field_vector += getSegmentDirection2(road_segments[segment_ids[i]], car_transform.position);
-        }
+        RoadSegment segment = (road_indices[i] == 0x7fffffff) ? (RoadSegment)0 : road_segments[road_indices[i]];
     }
-    /* normalize forward direction */
-    float forward_len = length(field_vector);
-    car_transform.forward = (forward_len < EPSILON) ? 0 : field_vector / forward_len;
-    
-    car_transform.position += time_params.y * car_transform.forward * 0.5;
-    car_transforms[thread_id.x] = car_transform;
 }
