@@ -1,4 +1,4 @@
-##GPU Transport Traffic Simulation##
+## GPU Transport Traffic Simulation
 Project is developed with participation of **ITMO University** under the **ITMO Stars** program. This project presents a new
 approach to Real-Time simulation of transport agents for video games. Most of existing approaches in city building
 games and are based on multi-threaded CPU utilization. However with huge advancements in perfomance of graphics
